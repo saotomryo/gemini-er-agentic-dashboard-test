@@ -1,0 +1,50 @@
+<mujoco model="simple_mobile_robot">
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <default>
+    <joint armature="0.01" damping="0.5"/>
+    <geom solref="0.02 1" friction="1.0 0.005 0.0001"/>
+  </default>
+
+  <visual>
+    <headlight active="1"/>
+    <map/>
+  </visual>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1" rgba=".8 .9 .8 1"/>
+    <light pos="2 2 5" dir="-0.5 -0.5 -1" diffuse="0.8 0.8 0.8"/>
+
+    <camera name="global_cam" pos="0 -4 5" xyaxes="1 0 0 0 0.8 0.6" fovy="80"/>
+
+    <body name="robot" pos="0 0 0.1">
+      <joint type="free"/>
+      
+      <geom type="box" size="0.2 0.15 0.05" rgba="0.2 0.2 0.8 1" mass="5"/>
+      
+      <camera name="robot_cam" pos="0 -0.22 0.1" euler="90 180 0" fovy="90"/>
+
+      <body name="wheel_right" pos="0.25 0.1 0">
+        <joint name="joint_right" axis="1 0 0"/>
+        <geom type="cylinder" size="0.1 0.05" euler="0 90 0" rgba="0.1 0.1 0.1 1"/>
+      </body>
+
+      <body name="wheel_left" pos="-0.25 0.1 0">
+        <joint name="joint_left" axis="1 0 0"/>
+        <geom type="cylinder" size="0.1 0.05" euler="0 90 0" rgba="0.1 0.1 0.1 1"/>
+      </body>
+      
+      <geom name="caster" type="sphere" size="0.1" pos="0 -0.15 0" rgba="0.5 0.5 0.5 1" friction="0 0 0"/>
+    </body>
+
+    <body name="target" pos="0 -3 0.5">
+       <geom type="cylinder" size="0.15 1" rgba="1 0 0 1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity name="motor_right" joint="joint_right" kv="20"/>
+    <velocity name="motor_left" joint="joint_left" kv="20"/>
+  </actuator>
+
+</mujoco>
