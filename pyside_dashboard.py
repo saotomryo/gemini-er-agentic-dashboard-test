@@ -258,8 +258,9 @@ class RobotController:
         self.align_threshold = 80  # 中央とみなす範囲(±80)
 
         # プラスが前進方向（general_agent_v4.py と揃える）
+        # calibration_results.csv のベスト値に合わせる
         self.base_speed = 15.0     # 直進時の基本速度
-        self.turn_speed = 8.0      # 旋回時の速度
+        self.turn_speed = 6.0      # 旋回時の速度
         self.kp = 0.02             # 旋回微調整のゲイン
 
         # 到達判定用（連続フレーム）
