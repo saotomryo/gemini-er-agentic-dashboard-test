@@ -1,4 +1,4 @@
-<mujoco model="path_planning_demo">
+<mujoco model="simple_mobile_robot">
   <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
 
   <default>
@@ -12,12 +12,10 @@
   </visual>
 
   <worldbody>
-    <geom name="floor" type="plane" size="5 5 0.1" rgba=".9 .9 .9 1"/>
-    
-    <light pos="0 -2 5" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <geom name="floor" type="plane" size="5 5 0.1" rgba=".8 .9 .8 1"/>
+    <light pos="2 2 5" dir="-0.5 -0.5 -1" diffuse="0.8 0.8 0.8"/>
 
-    <camera name="global_cam" pos="0 -2.5 6" xyaxes="1 0 0 0 1 0" fovy="60"/>
-
+    <camera name="global_cam" pos="0 -4 5" xyaxes="1 0 0 0 0.8 0.6" fovy="80"/>
 
     <body name="robot" pos="0 0 0.1">
       <joint type="free"/>
@@ -39,16 +37,24 @@
       <geom name="caster" type="sphere" size="0.1" pos="0 -0.15 0" rgba="0.5 0.5 0.5 1" friction="0 0 0"/>
     </body>
 
-
-    <body name="obstacle_blue" pos="0.6 -1.5 0.25">
-       <geom type="box" size="0.25 0.25 0.25" rgba="0 0 1 1"/>
+    <!-- カラーポール（スライドジョイントで位置を変更可能） -->
+    <body name="target_red" pos="0 0 0.5">
+      <joint name="joint_target_red_x" type="slide" axis="1 0 0"/>
+      <joint name="joint_target_red_y" type="slide" axis="0 1 0"/>
+      <geom type="cylinder" size="0.15 1" rgba="1 0 0 1"/>
     </body>
 
-
-    <body name="target_red" pos="0 -2.5 0.5">
-       <geom type="cylinder" size="0.15 1" rgba="1 0 0 1"/>
+    <body name="target_blue" pos="0 0 0.5">
+      <joint name="joint_target_blue_x" type="slide" axis="1 0 0"/>
+      <joint name="joint_target_blue_y" type="slide" axis="0 1 0"/>
+      <geom type="cylinder" size="0.15 1" rgba="0 0 1 1"/>
     </body>
 
+    <body name="target_yellow" pos="0 0 0.5">
+      <joint name="joint_target_yellow_x" type="slide" axis="1 0 0"/>
+      <joint name="joint_target_yellow_y" type="slide" axis="0 1 0"/>
+      <geom type="cylinder" size="0.15 1" rgba="1 1 0 1"/>
+    </body>
   </worldbody>
 
   <actuator>

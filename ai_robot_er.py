@@ -75,10 +75,12 @@ def calculate_motor_command(bbox_norm):
         return [0.0, 0.0]
     
     # 前進しながら旋回補正
-    base_speed = -15.0
+    base_speed = 15.0 # 前進に変更 (-15.0 -> 15.0)
     left = base_speed + turn
     right = base_speed - turn
     
+    print(f"🔍 [DEBUG] cx={center_x:.1f}, err={error_x:.1f}, turn={turn:.1f}, L/R={left:.1f}/{right:.1f}")
+
     return [np.clip(left, -20, 20), np.clip(right, -20, 20)]
 
 def detect_with_er_model(img_array):
@@ -93,7 +95,7 @@ def detect_with_er_model(img_array):
         
         data = json.loads(response.text)
         
-        if "box_2d" in data and data["box_2d"]:
+        if isinstance(data, dict) and "box_2d" in data and data["box_2d"]:
             return data["box_2d"]
         return None
             
