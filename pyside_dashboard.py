@@ -210,6 +210,10 @@ class VisionSystem:
         Find the "{target_description}" in the image.
 
         1. Detect the 2D bounding box of the target object as [ymin, xmin, ymax, xmax] in 0-1000 normalized coordinates.
+           - ymin: top edge (0=top, 1000=bottom)
+           - xmin: left edge (0=left, 1000=right)
+           - ymax: bottom edge
+           - xmax: right edge
         2. Decide whether the robot has already "reached" the target:
            - reached = true: the robot is close enough that it should stop and not move closer
            - reached = false: the robot is still far enough away that it should keep approaching
@@ -260,18 +264,18 @@ class RobotController:
         # プラスが前進方向（general_agent_v4.py と揃える）
         # calibration_results + 固定ターゲットモードでのゲイン(1.5倍)を反映
         self.base_speed = 22.5     # 直進時の基本速度 (15.0 * 1.5)
-        self.turn_speed = 9.0      # 旋回時の速度   (6.0  * 1.5)
+        self.turn_speed = 5.0      # 旋回時の速度 (下げました: 9.0 -> 5.0)
         self.kp = 0.02             # 旋回微調整のゲイン
 
         # 到達判定用（連続フレーム）
         self.close_frames = 0
 
     def decide_action(self, bbox, task_action: str):
-        # ターゲットが見つからない -> 探索用の旋回
+        # ターゲットが見つからない -> 停止
         if not bbox:
-            print(f"[CTRL] action={task_action} bbox=None -> SEARCH (spin)")
+            print(f"[CTRL] action={task_action} bbox=None -> STOP (lost target)")
             self.close_frames = 0
-            return [self.turn_speed, -self.turn_speed], False
+            return [0.0, 0.0], False
 
         ymin, xmin, ymax, xmax = bbox
         obj_center_x = (xmin + xmax) / 2.0
