@@ -35,8 +35,10 @@ except ImportError:
 
 
 SCENE_PATH = "scene.xml"
-# Robotics-ER model
+# Robotics-ER model for Vision
 VISION_MODEL_NAME = 'models/gemini-robotics-er-1.5-preview'
+# Flash model for Planning
+PLANNER_MODEL_NAME = 'gemini-2.5-flash'
 
 # Simulation speed adjustment
 SIM_STEPS_PER_TICK = 40
@@ -134,6 +136,46 @@ class SimulationEnv:
             self.data.qpos[adr_x] = x
             self.data.qpos[adr_y] = y
             print(f"[POLE] {color} randomized to x={x:.2f}, y={y:.2f}")
+
+
+class AgentPlanner:
+    """Planner using Gemini Flash"""
+    def __init__(self, model_name: str = PLANNER_MODEL_NAME):
+        self.model_name = model_name
+        self.model = None
+        
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel(self.model_name)
+            print(f"✅ Planner model: {self.model_name}")
+
+    def plan_tasks(self, instruction: str):
+        if not self.model:
+            return []
+        
+        prompt = f"""
+        You are a robot planner.
+        Convert the following instruction into a sequence of actions.
+        Instruction: "{instruction}"
+        
+        Available actions:
+        - "move_to": Approach a target object.
+        - "look_at": Turn to face a target object.
+        
+        Output JSON array of objects with "action" and "target" keys.
+        Example: [{{"action": "move_to", "target": "red pole"}}, {{"action": "look_at", "target": "blue box"}}]
+        """
+        
+        try:
+            response = self.model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+            tasks = json.loads(response.text)
+            if isinstance(tasks, list):
+                return tasks
+        except Exception as e:
+            print(f"⚠️ Planning error: {e}")
+        return []
 
 
 class VisionSystem:
@@ -247,11 +289,12 @@ class VisionJob(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Robotics-ER Dashboard")
+        self.setWindowTitle("Robotics-ER Agentic Dashboard")
 
         # Components
         self.env = SimulationEnv()
         self.vision = VisionSystem()
+        self.planner = AgentPlanner()
         self.controller = RobotController()
         
         # State
@@ -263,9 +306,14 @@ class MainWindow(QMainWindow):
         self.vision_job = None
         self.bbox_display = None
         self.last_api_time = 0.0
-        self.api_interval = 1.5 # 1.5s interval from ai_robot_er.py
+        self.api_interval = 1.5
         
-        self.target_desc = "red vertical pole (cylinder target)"
+        # Task Management
+        self.tasks = []
+        self.current_task_idx = 0
+        self.current_target_desc = ""
+        self.lost_frames = 0
+        self.MAX_LOST_FRAMES = 5 # Re-plan after 5 consecutive lost frames (approx 7.5s)
 
         self._setup_ui()
         self._setup_timer()
@@ -305,21 +353,23 @@ class MainWindow(QMainWindow):
         self.btn_randomize = QPushButton("Randomize Poles")
         self.combo_scene = QComboBox()
         self.combo_scene.addItem("scene.xml")
-        self.combo_scene.addItem("scene_obstacle.xml") # Placeholder if user adds more
+        self.combo_scene.addItem("scene_obstacle.xml")
         
-        self.edit_instruction = QLineEdit(self.target_desc)
-        self.edit_instruction.setPlaceholderText("Target Description")
+        self.edit_instruction = QLineEdit("Go to the red pole")
+        self.edit_instruction.setPlaceholderText("Enter instruction (e.g., Go to red pole then blue pole)")
+        self.btn_plan = QPushButton("Plan & Run")
 
         self.btn_start.clicked.connect(self.on_start)
         self.btn_stop.clicked.connect(self.on_stop)
         self.btn_randomize.clicked.connect(self.on_randomize)
         self.combo_scene.currentTextChanged.connect(self.on_scene_changed)
-        self.edit_instruction.textChanged.connect(self.on_instruction_changed)
+        self.btn_plan.clicked.connect(self.on_plan_clicked)
 
         control_layout.addWidget(QLabel("Scene:"))
         control_layout.addWidget(self.combo_scene)
-        control_layout.addWidget(QLabel("Target:"))
+        control_layout.addWidget(QLabel("Instruction:"))
         control_layout.addWidget(self.edit_instruction)
+        control_layout.addWidget(self.btn_plan)
         control_layout.addWidget(self.btn_start)
         control_layout.addWidget(self.btn_stop)
         control_layout.addWidget(self.btn_randomize)
@@ -353,11 +403,11 @@ class MainWindow(QMainWindow):
         img_robot, img_global = self.env.get_images()
         
         # Vision Trigger
-        if self.running and not self.vision_busy:
+        if self.running and not self.vision_busy and self.current_target_desc:
             now = time.time()
             if now - self.last_api_time > self.api_interval:
                 self.last_api_time = now
-                self._start_vision_job(img_robot, self.target_desc)
+                self._start_vision_job(img_robot, self.current_target_desc)
 
         # Overlay BBox
         robot_disp = img_robot.copy()
@@ -390,14 +440,41 @@ class MainWindow(QMainWindow):
 
     def _on_vision_result(self, bbox):
         self.bbox_display = bbox
+        
+        # Monitor Lost Status
+        if bbox is None:
+            self.lost_frames += 1
+            print(f"⚠️ Target Lost ({self.lost_frames}/{self.MAX_LOST_FRAMES})")
+            if self.lost_frames >= self.MAX_LOST_FRAMES:
+                self.statusBar().showMessage("Target Lost! Stopping...")
+                self.ctrl_left = 0.0
+                self.ctrl_right = 0.0
+                # Here we could trigger re-planning
+                return
+        else:
+            self.lost_frames = 0
+
+        # Control
         new_ctrl, is_done = self.controller.decide_action(bbox)
         self.ctrl_left, self.ctrl_right = float(new_ctrl[0]), float(new_ctrl[1])
         
         if is_done:
-            self.statusBar().showMessage("Target Reached!")
-            self.running = False # Stop simulation/control on reach? Or just stop motors?
+            print(f"✅ Task Completed: {self.current_target_desc}")
+            self.current_task_idx += 1
+            self._start_next_task()
+
+    def _start_next_task(self):
+        if self.current_task_idx < len(self.tasks):
+            task = self.tasks[self.current_task_idx]
+            self.current_target_desc = task.get("target", "")
+            self.statusBar().showMessage(f"Task {self.current_task_idx+1}/{len(self.tasks)}: {task['action']} -> {self.current_target_desc}")
+            self.lost_frames = 0
+        else:
+            self.statusBar().showMessage("All Tasks Completed!")
+            self.running = False
             self.ctrl_left = 0.0
             self.ctrl_right = 0.0
+            self.current_target_desc = ""
 
     def _on_vision_finished(self):
         self.vision_busy = False
@@ -413,15 +490,35 @@ class MainWindow(QMainWindow):
 
     def _update_info(self):
         state = self.env.get_robot_state(self.ctrl_left, self.ctrl_right)
+        task_info = f"Task: {self.current_target_desc}" if self.current_target_desc else "Idle"
         text = (
             f"<b>Status:</b> {'RUNNING' if self.running else 'STOPPED'}<br>"
-            f"<b>Target:</b> {self.target_desc}<br>"
+            f"<b>{task_info}</b><br>"
             f"<b>Robot Pos:</b> ({state.position[0]:.2f}, {state.position[1]:.2f})<br>"
             f"<b>Yaw:</b> {state.yaw_deg:.1f} deg<br>"
             f"<b>Motors:</b> L={self.ctrl_left:.1f}, R={self.ctrl_right:.1f}<br>"
-            f"<b>Vision Model:</b> {VISION_MODEL_NAME}"
+            f"<b>Vision:</b> {VISION_MODEL_NAME}<br>"
+            f"<b>Planner:</b> {PLANNER_MODEL_NAME}"
         )
         self.label_info.setText(text)
+
+    def on_plan_clicked(self):
+        instruction = self.edit_instruction.text()
+        if not instruction:
+            return
+        
+        self.statusBar().showMessage("Planning...")
+        QApplication.processEvents() # Force UI update
+        
+        tasks = self.planner.plan_tasks(instruction)
+        if tasks:
+            self.tasks = tasks
+            self.current_task_idx = 0
+            print(f"📋 Plan: {self.tasks}")
+            self._start_next_task()
+            self.running = True
+        else:
+            self.statusBar().showMessage("Planning Failed")
 
     def on_start(self):
         self.running = True
@@ -444,7 +541,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Scene loaded: {text}")
 
     def on_instruction_changed(self, text):
-        self.target_desc = text
+        pass # Handled by Plan button
 
 def main():
     app = QApplication(sys.argv)
