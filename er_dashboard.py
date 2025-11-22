@@ -208,12 +208,8 @@ class AgentPlanner:
         3. If the target IS visible, use "approach" with the target name.
         4. Do NOT generate a list of tasks. Just ONE action.
         
-        Output JSON:
-        {{
-            "action": "action_name",
-            "target": "target_name_if_needed",
-            "reason": "brief reasoning"
-        }}
+        Output JSON object (no prose):
+        {{"action": "<action_name>", "target": "<target_if_needed>", "reason": "<brief>"}}
         """
         
         contents = [prompt_text]
@@ -266,9 +262,9 @@ class VisionSystem:
         # Prompt from ai_robot_er.py
         prompt = f"""
         Detect the {target_description} in the image.
-        Return the 2D bounding box in JSON format with keys "box_2d" containing [ymin, xmin, ymax, xmax].
-        If no target is found, return null.
-        Example output: {{"box_2d": [200, 300, 800, 400]}}
+        Return a JSON array. Each element must have key "box_2d" with [ymin, xmin, ymax, xmax] (all 0-1000 normalized).
+        If no target is found, return [].
+        Example: [{{"box_2d":[200,300,800,400]}}]
         """
 
         try:
@@ -278,14 +274,20 @@ class VisionSystem:
                 generation_config={"response_mime_type": "application/json"},
             )
             data = json.loads(response.text)
-            
-            if isinstance(data, dict) and "box_2d" in data and data["box_2d"]:
+            box = None
+            if isinstance(data, list) and data:
+                first = data[0]
+                if isinstance(first, dict) and "box_2d" in first:
+                    box = first["box_2d"]
+            elif isinstance(data, dict) and "box_2d" in data:
+                # backward compatibility
                 box = data["box_2d"]
+
+            if box:
                 print(f"[VISION] Found {target_description}: {box}")
                 return box
-            else:
-                print(f"[VISION] {target_description} not found.")
-                return None
+            print(f"[VISION] {target_description} not found.")
+            return None
         except Exception as e:
             print(f"⚠️ Vision detect error: {e}")
             return None

@@ -43,9 +43,9 @@ except Exception as e:
 # ==========================================
 PROMPT = """
 Detect the red vertical pole (cylinder target) in the image.
-Return the 2D bounding box in JSON format with keys "box_2d" containing [ymin, xmin, ymax, xmax].
-If no target is found, return null.
-Example output: {"box_2d": [200, 300, 800, 400]}
+Return a JSON array. Each element has key "box_2d" with [ymin, xmin, ymax, xmax] (all 0-1000 normalized).
+If no target is found, return [].
+Example output: [{"box_2d": [200, 300, 800, 400]}]
 """
 
 # ==========================================
@@ -94,8 +94,12 @@ def detect_with_er_model(img_array):
         )
         
         data = json.loads(response.text)
-        
-        if isinstance(data, dict) and "box_2d" in data and data["box_2d"]:
+
+        if isinstance(data, list) and data:
+            first = data[0]
+            if isinstance(first, dict) and "box_2d" in first and first["box_2d"]:
+                return first["box_2d"]
+        elif isinstance(data, dict) and "box_2d" in data and data["box_2d"]:
             return data["box_2d"]
         return None
             
