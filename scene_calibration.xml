@@ -1,4 +1,4 @@
-<mujoco model="path_planning_demo">
+<mujoco model="calibration_scene">
   <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
 
   <default>
@@ -12,14 +12,14 @@
   </visual>
 
   <worldbody>
-    <geom name="floor" type="plane" size="5 5 0.1" rgba=".9 .9 .9 1"/>
+    <geom name="floor" type="plane" size="6 6 0.1" rgba=".9 .9 .9 1"/>
     
-    <light pos="0 -2 5" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <light pos="0 0 6" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
 
-    <!-- Top-down global view -->
+    <!-- Top-down global camera for reference -->
     <camera name="global_cam" pos="0 0 8" fovy="55"/>
 
-
+    <!-- Robot body -->
     <body name="robot" pos="0 0 0.1">
       <joint type="free"/>
       
@@ -40,14 +40,15 @@
       <geom name="caster" type="sphere" size="0.1" pos="0 -0.15 0" rgba="0.5 0.5 0.5 1" friction="0 0 0"/>
     </body>
 
-
-    <body name="obstacle_blue" pos="0.6 -1.5 0.25">
-       <geom type="box" size="0.25 0.25 0.25" rgba="0 0 1 1"/>
+    <!-- Reference markers -->
+    <body name="marker_forward" pos="0 -3.0 0.5">
+       <geom type="cylinder" size="0.1 0.5" rgba="0.1 0.7 0.1 1"/>
     </body>
-
-
-    <body name="target_red" pos="0 -2.5 0.5">
-       <geom type="cylinder" size="0.15 1" rgba="1 0 0 1"/>
+    <body name="marker_left" pos="-3.0 0.0 0.5">
+       <geom type="cylinder" size="0.1 0.5" rgba="0.1 0.1 0.7 1"/>
+    </body>
+    <body name="marker_right" pos="3.0 0.0 0.5">
+       <geom type="cylinder" size="0.1 0.5" rgba="0.7 0.1 0.1 1"/>
     </body>
 
   </worldbody>

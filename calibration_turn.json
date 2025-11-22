@@ -1,0 +1,7 @@
+{
+  "turn_speed": 3.0,
+  "turn_duration": 1.0,
+  "measured_yaw_delta": 32.19303006740927,
+  "target_yaw": 30.0,
+  "scene": "scene_calibration.xml"
+}

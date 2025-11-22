@@ -1,0 +1,108 @@
+<mujoco model="maze_scene">
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <default>
+    <joint armature="0.01" damping="0.5"/>
+    <geom solref="0.02 1" friction="1.0 0.005 0.0001"/>
+  </default>
+
+  <visual>
+    <headlight active="1"/>
+    <map/>
+  </visual>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="8 8 0.1" rgba=".9 .9 .9 1"/>
+    
+    <light pos="0 -3 6" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+
+    <!-- Top-down global view -->
+    <camera name="global_cam" pos="0 0 9" fovy="55"/>
+
+
+    <body name="robot" pos="0 0 0.1">
+      <joint type="free"/>
+      
+      <geom type="box" size="0.2 0.15 0.05" rgba="0.2 0.2 0.8 1" mass="5"/>
+      
+      <camera name="robot_cam" pos="0 -0.22 0.1" euler="90 180 0" fovy="90"/>
+
+      <body name="wheel_right" pos="0.25 0.1 0">
+        <joint name="joint_right" axis="1 0 0"/>
+        <geom type="cylinder" size="0.1 0.05" euler="0 90 0" rgba="0.1 0.1 0.1 1"/>
+      </body>
+
+      <body name="wheel_left" pos="-0.25 0.1 0">
+        <joint name="joint_left" axis="1 0 0"/>
+        <geom type="cylinder" size="0.1 0.05" euler="0 90 0" rgba="0.1 0.1 0.1 1"/>
+      </body>
+      
+      <geom name="caster" type="sphere" size="0.1" pos="0 -0.15 0" rgba="0.5 0.5 0.5 1" friction="0 0 0"/>
+    </body>
+
+    <!-- Maze walls (thin boxes) -->
+    <body name="wall_outer_north" pos="0 -4.5 0.5">
+       <geom type="box" size="4.0 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    </body>
+    <body name="wall_outer_south" pos="0 4.5 0.5">
+       <geom type="box" size="4.0 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    </body>
+    <body name="wall_outer_west" pos="-4.05 0 0.5">
+       <geom type="box" size="0.05 4.5 0.5" rgba="0.7 0.7 0.7 1"/>
+    </body>
+    <body name="wall_outer_east" pos="4.05 0 0.5">
+       <geom type="box" size="0.05 4.5 0.5" rgba="0.7 0.7 0.7 1"/>
+    </body>
+
+    <!-- Internal corridors -->
+    <body name="wall_mid_vert_1" pos="-1.5 -2.0 0.5">
+       <geom type="box" size="0.05 1.8 0.5" rgba="0.5 0.5 0.5 1"/>
+    </body>
+    <body name="wall_mid_vert_2" pos="1.5 1.0 0.5">
+       <geom type="box" size="0.05 2.0 0.5" rgba="0.5 0.5 0.5 1"/>
+    </body>
+    <body name="wall_mid_horz_1" pos="-0.5 -0.5 0.5">
+       <geom type="box" size="2.5 0.05 0.5" rgba="0.5 0.5 0.5 1"/>
+    </body>
+    <body name="wall_mid_horz_2" pos="0.5 2.5 0.5">
+       <geom type="box" size="2.0 0.05 0.5" rgba="0.5 0.5 0.5 1"/>
+    </body>
+    <body name="wall_mid_horz_3" pos="2.5 -2.5 0.5">
+       <geom type="box" size="1.3 0.05 0.5" rgba="0.5 0.5 0.5 1"/>
+    </body>
+
+    <!-- Targets placed deep in maze -->
+    <body name="target_red" pos="3.0 -3.2 0.5">
+       <geom type="cylinder" size="0.12 1.0" rgba="1 0 0 1"/>
+       <joint name="joint_target_red_x" type="slide" axis="1 0 0" damping="1"/>
+       <joint name="joint_target_red_y" type="slide" axis="0 1 0" damping="1"/>
+    </body>
+
+    <body name="target_blue" pos="-3.0 3.2 0.5">
+       <geom type="cylinder" size="0.12 1.0" rgba="0 0 1 1"/>
+       <joint name="joint_target_blue_x" type="slide" axis="1 0 0" damping="1"/>
+       <joint name="joint_target_blue_y" type="slide" axis="0 1 0" damping="1"/>
+    </body>
+
+    <body name="target_yellow" pos="0.0 0.0 0.5">
+       <geom type="cylinder" size="0.12 1.0" rgba="1 1 0 1"/>
+       <joint name="joint_target_yellow_x" type="slide" axis="1 0 0" damping="1"/>
+       <joint name="joint_target_yellow_y" type="slide" axis="0 1 0" damping="1"/>
+    </body>
+
+    <!-- Small pillars as distractions -->
+    <body name="pillar_1" pos="2.0 0.5 0.25">
+       <geom type="box" size="0.2 0.2 0.25" rgba="0.3 0.3 0.3 1"/>
+    </body>
+    <body name="pillar_2" pos="-2.5 -1.5 0.25">
+       <geom type="box" size="0.2 0.2 0.25" rgba="0.3 0.3 0.3 1"/>
+    </body>
+
+  </worldbody>
+
+  <actuator>
+    <velocity name="motor_right" joint="joint_right" kv="20"/>
+    <velocity name="motor_left" joint="joint_left" kv="20"/>
+  </actuator>
+
+</mujoco>

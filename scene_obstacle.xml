@@ -1,4 +1,4 @@
-<mujoco model="path_planning_demo">
+<mujoco model="obstacle_scene">
   <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
 
   <default>
@@ -41,13 +41,16 @@
     </body>
 
 
-    <body name="obstacle_blue" pos="0.6 -1.5 0.25">
-       <geom type="box" size="0.25 0.25 0.25" rgba="0 0 1 1"/>
+    <!-- Large Obstacle blocking the direct path -->
+    <body name="obstacle_large" pos="0 -1.5 0.25">
+       <geom type="box" size="0.6 0.25 0.25" rgba="0 0 1 1"/>
     </body>
 
 
-    <body name="target_red" pos="0 -2.5 0.5">
+    <body name="target_red" pos="0 -3.5 0.5">
        <geom type="cylinder" size="0.15 1" rgba="1 0 0 1"/>
+       <joint name="joint_target_red_x" type="slide" axis="1 0 0" damping="1"/>
+       <joint name="joint_target_red_y" type="slide" axis="0 1 0" damping="1"/>
     </body>
 
   </worldbody>
