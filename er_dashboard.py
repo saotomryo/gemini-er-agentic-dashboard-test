@@ -359,7 +359,8 @@ class VisionSystem:
 
         # Prompt from ai_robot_er.py
         prompt = f"""
-        Detect the {target_description} in the image.
+        Detect ONLY the {target_description} (red vertical cylinder target) in the image.
+        Ignore other objects such as blue blocks or non-red items.
         Return a JSON array. Each element must have key "box_2d" with [ymin, xmin, ymax, xmax] (all 0-1000 normalized).
         If no target is found, return [].
         Example: [{{"box_2d":[200,300,800,400]}}]
@@ -474,6 +475,9 @@ class RobotController:
             # P-Control
             error_x = obj_center_x - self.center_x
             turn = error_x * kp
+            # If almost centered, prefer straight movement and longer step
+            if abs(error_x) < 80:
+                turn = 0.0
             # Clamp turn when very close to avoid spin
             turn = np.clip(turn, -6.0, 6.0)
 
@@ -481,7 +485,8 @@ class RobotController:
             right = speed - turn
             
             # print(f"🔍 [CTRL] cx={obj_center_x:.1f}, err={error_x:.1f}, turn={turn:.1f}, L/R={left:.1f}/{right:.1f}")
-            return [np.clip(left, -20, 20), np.clip(right, -20, 20)], 0.1 # Short step for servoing
+            duration = 0.2 if abs(error_x) < 80 else 0.1
+            return [np.clip(left, -20, 20), np.clip(right, -20, 20)], duration # Longer step if centered
         
         return [0.0, 0.0], 0.0
 
@@ -538,6 +543,10 @@ class MainWindow(QMainWindow):
         self.current_target = None
         self.last_progress_check = 0.0
         self.progress_interval = 6.0 # seconds
+        self.edge_bbox_count = 0
+        self.last_motion_check = time.time()
+        self.last_pose_for_motion = None
+        self.skip_motion_until = 0.0
         
         # Task Management
         self.history = []
@@ -732,6 +741,9 @@ class MainWindow(QMainWindow):
                         self.action_duration = 0.0
                         self._log_action_debug("approach_init", [self.ctrl_left, self.ctrl_right], 0.0, f"target={target}")
                         
+                        # Reset motion baseline and skip stall detection briefly
+                        self.last_pose_for_motion = (time.time(), self.env.get_robot_state(self.ctrl_left, self.ctrl_right))
+                        self.skip_motion_until = time.time() + 3.0
                         if not self.vision_busy:
                              self._start_vision_job(img_robot, target)
                     else:
@@ -751,6 +763,9 @@ class MainWindow(QMainWindow):
         if self.scanning:
             # We need to capture 4 images: Front(0), Right(90), Back(180), Left(270)
             # Logic: Capture -> Turn 90 -> Wait -> Capture...
+            # Clear bbox display when starting scan
+            self.bbox_display = None
+            self.edge_bbox_count = 0
             
             # Check if we are currently turning
             if self.current_action == "scanning_turn":
@@ -810,6 +825,30 @@ class MainWindow(QMainWindow):
             self.last_state_log = time.time()
             self._log_state_snapshot()
 
+        # Motion stall detection (no pose change) -> trigger scan
+        if self.running and not self.scanning and not self.waiting_for_vision and not self.vision_busy:
+            now = time.time()
+            if self.last_pose_for_motion is None:
+                self.last_pose_for_motion = (now, self.env.get_robot_state(self.ctrl_left, self.ctrl_right))
+            elif now - self.last_motion_check >= 3.0:
+                prev_t, prev_state = self.last_pose_for_motion
+                cur_state = self.env.get_robot_state(self.ctrl_left, self.ctrl_right)
+                dist = np.linalg.norm(cur_state.position[:2] - prev_state.position[:2])
+                dyaw = abs(cur_state.yaw_deg - prev_state.yaw_deg)
+                self.last_motion_check = now
+                self.last_pose_for_motion = (now, cur_state)
+                if dist < 0.05 and dyaw < 5.0 and now >= self.skip_motion_until:
+                    self._log("[STALL] Minimal motion detected -> scanning to recover.")
+                    self.ctrl_left = 0.0
+                    self.ctrl_right = 0.0
+                    self.current_action = None
+                    self.scanning = True
+                    self.scan_step = 0
+                    self.surround_images = []
+                    self.action_start_time = time.time()
+                    self.action_duration = 0.0
+                    self.statusBar().showMessage("Motion stall -> scanning")
+
         # Progress/stall monitoring (lightweight, ER-based)
         if self.running and not self.scanning and (time.time() - self.last_progress_check >= self.progress_interval):
             self.last_progress_check = time.time()
@@ -820,12 +859,14 @@ class MainWindow(QMainWindow):
                     progress = result.get("progress")
                     comment = result.get("comment", "")
                     self._log(f"🧭 Progress: {status} ({progress}) {comment}")
-                    # If stalled and idle, trigger a scan to reorient
-                    if status == "STALLED" and not self.current_action:
+                    # If stalled, force stop current action and trigger scan
+                    if status == "STALLED":
+                        self.ctrl_left = 0.0
+                        self.ctrl_right = 0.0
+                        self.current_action = None
                         self.scanning = True
                         self.scan_step = 0
                         self.surround_images = []
-                        self.current_action = "scan"
                         self.action_start_time = time.time()
                         self.action_duration = 0.0
                         self.statusBar().showMessage("Progress stalled -> scanning")
@@ -848,6 +889,21 @@ class MainWindow(QMainWindow):
     def _on_vision_result(self, bbox):
         self.bbox_display = bbox
         self.waiting_for_vision = False
+        # Filter edge-hugging huge boxes (likely false positive)
+        if bbox:
+            ymin, xmin, ymax, xmax = bbox
+            height = ymax - ymin
+            near_edge = xmin < 50 or xmax > 950
+            if near_edge and height > 900:
+                self.edge_bbox_count += 1
+                if self.edge_bbox_count >= 2:
+                    bbox = None
+                    self.bbox_display = None
+                    self._log("[VISION] Dropped edge-hugging bbox as likely false positive.")
+            else:
+                self.edge_bbox_count = 0
+        else:
+            self.edge_bbox_count = 0
         
         if self.current_action == "approach":
             # We are in the middle of an approach step
