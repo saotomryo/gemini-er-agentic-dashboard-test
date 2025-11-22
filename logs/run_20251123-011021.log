@@ -1,0 +1,56 @@
+2025-11-23 01:10:22 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:23 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:24 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:25 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:26 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:27 [STATE] action=Idle pos=(+0.00,+0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:27 ▶️ Agent Started
+2025-11-23 01:10:33 🤖 approach (The target 'red pole' is clearly visible in the current view, so I will initiate the approach action to move towards it.)
+2025-11-23 01:10:33 [DBG] action=approach_init motors=L+0.0/R+0.0 dur=0.00s pos=(-0.00,-0.00) yaw=+0.0 bbox=None target=red pole
+2025-11-23 01:10:33 [STATE] action=approach pos=(-0.00,-0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:38 🧭 Progress: IN_PROGRESS (0.1) The approach action toward the red pole has just been initiated, and movement has begun.
+2025-11-23 01:10:38 [STATE] action=approach pos=(-0.00,-0.00) yaw=+0.0 motors=L+0.00/R+0.00 bbox=None scene=scene.xml
+2025-11-23 01:10:38 [DBG] action=approach motors=L+8.6/R-0.5 dur=0.10s pos=(-0.00,-0.00) yaw=+0.0 bbox=[161, 541, 547, 641] vision_update
+2025-11-23 01:10:45 🧭 Progress: IN_PROGRESS (0.1) The approach action has just been initiated towards the visible red pole, meaning the task has started but minimal progress has been made toward reaching the destination.
+2025-11-23 01:10:45 [DBG] action=approach motors=L+4.3/R+3.6 dur=0.10s pos=(+0.01,-0.04) yaw=+11.5 bbox=[188, 473, 561, 541] vision_update
+2025-11-23 01:10:45 [STATE] action=approach pos=(+0.01,-0.04) yaw=+12.1 motors=L+4.35/R+3.65 bbox=[188, 473, 561, 541] scene=scene.xml
+2025-11-23 01:10:50 🧭 Progress: IN_PROGRESS (0.1) Initiated approach towards the visible red pole. Task has just begun.
+2025-11-23 01:10:50 [STATE] action=approach pos=(+0.01,-0.04) yaw=+12.6 motors=L+4.35/R+3.65 bbox=[188, 473, 561, 541] scene=scene.xml
+2025-11-23 01:10:55 🧭 Progress: IN_PROGRESS (0.1) Initiated approach towards the visible red pole.
+2025-11-23 01:10:55 [DBG] action=approach motors=L+7.7/R+0.3 dur=0.10s pos=(+0.05,-0.14) yaw=+17.7 bbox=[163, 517, 631, 631] vision_update
+2025-11-23 01:10:55 [STATE] action=approach pos=(+0.05,-0.15) yaw=+17.9 motors=L+7.70/R+0.30 bbox=[163, 517, 631, 631] scene=scene.xml
+2025-11-23 01:10:56 [STATE] action=approach pos=(+0.09,-0.21) yaw=+30.9 motors=L+7.70/R+0.30 bbox=[163, 517, 631, 631] scene=scene.xml
+2025-11-23 01:10:57 [STATE] action=approach pos=(+0.11,-0.23) yaw=+36.1 motors=L+7.70/R+0.30 bbox=[163, 517, 631, 631] scene=scene.xml
+2025-11-23 01:11:03 🧭 Progress: IN_PROGRESS (0.1) The 'approach' action has been initiated to move towards the clearly visible red pole, marking the start of the task execution.
+2025-11-23 01:11:03 [DBG] action=approach motors=L+10.0/R-2.0 dur=0.10s pos=(+0.11,-0.24) yaw=+36.6 bbox=[208, 541, 606, 708] vision_update
+2025-11-23 01:11:03 [STATE] action=approach pos=(+0.11,-0.24) yaw=+36.7 motors=L+10.00/R-2.00 bbox=[208, 541, 606, 708] scene=scene.xml
+2025-11-23 01:11:09 🧭 Progress: IN_PROGRESS (0.1) Initiated approach action to move towards the visible red pole.
+2025-11-23 01:11:09 [DBG] action=approach motors=L+10.0/R-2.0 dur=0.10s pos=(+0.11,-0.24) yaw=+37.7 bbox=[160, 760, 660, 860] vision_update
+2025-11-23 01:11:09 [STATE] action=approach pos=(+0.11,-0.24) yaw=+37.9 motors=L+10.00/R-2.00 bbox=[160, 760, 660, 860] scene=scene.xml
+2025-11-23 01:11:14 🧭 Progress: IN_PROGRESS (0.1) Approach action has just been initiated towards the visible red pole.
+2025-11-23 01:11:14 [DBG] action=approach motors=L+10.0/R-2.0 dur=0.10s pos=(+0.11,-0.24) yaw=+38.4 bbox=[107, 722, 790, 909] vision_update
+2025-11-23 01:11:14 [STATE] action=approach pos=(+0.11,-0.24) yaw=+38.7 motors=L+10.00/R-2.00 bbox=[107, 722, 790, 909] scene=scene.xml
+2025-11-23 01:11:21 🧭 Progress: IN_PROGRESS (0.2) The red pole is visible, and the robot has initiated the approach action, but has not yet reached the destination.
+2025-11-23 01:11:21 [DBG] action=approach motors=L+10.0/R-2.0 dur=0.10s pos=(+0.11,-0.23) yaw=+47.4 bbox=[113, 761, 601, 950] vision_update
+2025-11-23 01:11:21 [STATE] action=approach pos=(+0.11,-0.23) yaw=+47.8 motors=L+10.00/R-2.00 bbox=[113, 761, 601, 950] scene=scene.xml
+2025-11-23 01:11:32 🧭 Progress: STALLED (0.0) The task requires reaching a 'red pole', but the image clearly shows a large blue object, and no red pole is visible. The agent's action description contradicts the visual evidence.
+2025-11-23 01:11:32 [DBG] action=approach motors=L+7.6/R-4.4 dur=0.10s pos=(+0.11,-0.23) yaw=+50.0 bbox=[0, 898, 1000, 1000] vision_update
+2025-11-23 01:11:32 [STATE] action=approach pos=(+0.11,-0.23) yaw=+50.4 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:11:43 🧭 Progress: STALLED (0) The target 'red pole' is not visible in the image. The recent action description contradicts the image content (identifying a blue object as the red pole).
+2025-11-23 01:11:43 [STATE] action=approach pos=(+0.11,-0.23) yaw=+50.7 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:12:06 🧭 Progress: STALLED (0.0) The recent action description mentions approaching a 'red pole', but the image shows a blue object, indicating a potential misidentification or absence of the correct target, stalling progress towards the goal.
+2025-11-23 01:12:06 [STATE] action=approach pos=(+0.11,-0.23) yaw=+51.1 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:12:22 🧭 Progress: STALLED (0.0) The agent reports approaching a 'red pole', but the current visual input shows a blue block. The agent is likely misidentifying the target, stalling progress towards the correct goal.
+2025-11-23 01:12:22 [STATE] action=approach pos=(+0.11,-0.23) yaw=+51.6 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:12:32 🧭 Progress: STALLED (0.0) The specified target 'red pole' is not visible in the image; a blue object is present instead. This discrepancy indicates an error in identification or an issue with the environment.
+2025-11-23 01:12:32 [STATE] action=approach pos=(+0.11,-0.23) yaw=+52.0 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:12:45 🧭 Progress: STALLED (0.0) The target 'red pole' is not visible in the current image, contradicting the action description. Task cannot proceed.
+2025-11-23 01:12:45 [STATE] action=approach pos=(+0.11,-0.23) yaw=+52.5 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:12:59 🧭 Progress: STALLED (0.0) The agent claims to be approaching the 'red pole,' but the image displays a blue object, suggesting misidentification of the target.
+2025-11-23 01:12:59 [STATE] action=approach pos=(+0.11,-0.23) yaw=+53.0 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:13:08 🧭 Progress: IN_PROGRESS (0.1) The approach action toward the red pole has just been initiated.
+2025-11-23 01:13:09 [STATE] action=approach pos=(+0.11,-0.23) yaw=+53.5 motors=L+7.60/R-4.40 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:13:23 🧭 Progress: STALLED (0.0) The target 'red pole' is not present in the image. The agent appears to be mistaking a large blue block for the target, stalling progress towards the correct goal.
+2025-11-23 01:13:23 ⏹️ Agent Stopped
+2025-11-23 01:13:23 [STATE] action=Idle pos=(+0.11,-0.23) yaw=+53.5 motors=L+0.00/R+0.00 bbox=[0, 898, 1000, 1000] scene=scene.xml
+2025-11-23 01:13:23 ⏹️ Agent Stopped

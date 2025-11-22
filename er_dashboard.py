@@ -5,6 +5,7 @@ import json
 import os
 import math
 from pathlib import Path
+from typing import List, Optional
 
 import cv2
 import mujoco
@@ -232,12 +233,109 @@ class AgentPlanner:
             return None
 
 
+class ERPlannerAssist:
+    """Fallback planner using ER directly for a single-step JSON action."""
+    def __init__(self, model_name: str = VISION_MODEL_NAME):
+        self.model_name = model_name
+        self.model = None
+        self.last_prompt = None
+        self.last_response = None
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            try:
+                self.model = genai.GenerativeModel(self.model_name)
+                print(f"✅ ER fallback planner: {self.model_name}")
+            except Exception as e:
+                print(f"⚠️ ER fallback init error: {e}")
+
+    def plan(self, instruction: str, history: list, img_rgb: np.ndarray, surround_imgs: list = None):
+        if not self.model:
+            return None
+        from PIL import Image
+        history_str = "\n".join([f"- {h}" for h in history[-5:]])
+        prompt = f"""
+        You are controlling a differential-drive robot. Choose the NEXT action (one step) to achieve: "{instruction}".
+        History (recent): 
+        {history_str}
+        Allowed actions: scan, turn_left_30, turn_right_30, move_forward_short, approach, stop.
+        If target is visible, prefer approach with target name. If lost, use scan or turn towards remembered direction.
+        Output JSON only: {{"action":"<name>","target":"<target_optional>","reason":"<brief>"}}
+        """
+        contents = [prompt]
+        if img_rgb is not None:
+            contents.append("Current View:")
+            contents.append(Image.fromarray(img_rgb))
+        if surround_imgs:
+            contents.append("Surround View (Front, Right, Back, Left):")
+            for img in surround_imgs:
+                contents.append(Image.fromarray(img))
+        try:
+            self.last_prompt = prompt
+            response = self.model.generate_content(
+                contents,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            self.last_response = response.text
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"⚠️ ER fallback plan error: {e}")
+            return None
+
+
+class ERProgressMonitor:
+    """Use ER to estimate progress/stall status."""
+    def __init__(self, model_name: str = VISION_MODEL_NAME):
+        self.model_name = model_name
+        self.model = None
+        self.last_prompt = None
+        self.last_response = None
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            try:
+                self.model = genai.GenerativeModel(self.model_name)
+                print(f"✅ ER progress monitor: {self.model_name}")
+            except Exception as e:
+                print(f"⚠️ ER progress init error: {e}")
+
+    def estimate(self, instruction: str, history: list, frames: list):
+        if not self.model:
+            return None
+        from PIL import Image
+        history_str = "\n".join([f"- {h}" for h in history[-5:]])
+        prompt = f"""
+        Estimate task progress toward: "{instruction}"
+        Recent actions:
+        {history_str}
+        Return JSON only: {{"status": "IN_PROGRESS|STALLED|COMPLETED", "progress": 0..1, "comment": "<brief>"}}
+        """
+        contents = [prompt]
+        for frame in frames:
+            contents.append(Image.fromarray(frame))
+        try:
+            self.last_prompt = prompt
+            response = self.model.generate_content(
+                contents,
+                generation_config={"response_mime_type": "application/json"},
+            )
+            self.last_response = response.text
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"⚠️ ER progress error: {e}")
+            return None
+
+
 class VisionSystem:
     """Wrapper for Robotics-ER Model"""
 
     def __init__(self, model_name: str = VISION_MODEL_NAME):
         self.model_name = model_name
         self.model = None
+        self.last_prompt = None
+        self.last_response = None
 
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -258,7 +356,7 @@ class VisionSystem:
             return None
 
         from PIL import Image
-        
+
         # Prompt from ai_robot_er.py
         prompt = f"""
         Detect the {target_description} in the image.
@@ -266,6 +364,7 @@ class VisionSystem:
         If no target is found, return [].
         Example: [{{"box_2d":[200,300,800,400]}}]
         """
+        self.last_prompt = prompt
 
         try:
             pil_img = Image.fromarray(img_rgb)
@@ -273,6 +372,7 @@ class VisionSystem:
                 [prompt, pil_img],
                 generation_config={"response_mime_type": "application/json"},
             )
+            self.last_response = response.text
             data = json.loads(response.text)
             box = None
             if isinstance(data, list) and data:
@@ -287,9 +387,17 @@ class VisionSystem:
                 print(f"[VISION] Found {target_description}: {box}")
                 return box
             print(f"[VISION] {target_description} not found.")
+            if self.last_prompt:
+                self._log(f"[PROMPT][VISION] {self.last_prompt}")
+            if self.last_response:
+                self._log(f"[RESPONSE][VISION] {self.last_response}")
             return None
         except Exception as e:
             print(f"⚠️ Vision detect error: {e}")
+            if self.last_prompt:
+                self._log(f"[PROMPT][VISION] {self.last_prompt}")
+            if self.last_response:
+                self._log(f"[RESPONSE][VISION] {self.last_response}")
             return None
 
 
@@ -404,10 +512,18 @@ class MainWindow(QMainWindow):
         self.env = SimulationEnv()
         self.vision = VisionSystem()
         self.planner = AgentPlanner()
+        self.fallback_planner = ERPlannerAssist()
+        self.progress_monitor = ERProgressMonitor()
         calib = load_turn_calibration()
         self.controller = RobotController(turn_calibration=calib)
         if calib:
             print(f"✅ Loaded turn calibration: speed={calib['speed']}, duration={calib['duration']}")
+        # Logging
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        self.log_file = logs_dir / f"run_{timestamp}.log"
+        self.last_state_log = time.time()
         
         # State
         self.ctrl_left = 0.0
@@ -420,6 +536,8 @@ class MainWindow(QMainWindow):
         self.last_api_time = 0.0
         self.api_interval = 1.5
         self.current_target = None
+        self.last_progress_check = 0.0
+        self.progress_interval = 6.0 # seconds
         
         # Task Management
         self.history = []
@@ -576,6 +694,13 @@ class MainWindow(QMainWindow):
                 
                 instruction = self.edit_instruction.text()
                 step = self.planner.decide_next_step(instruction, self.history, img_robot, self.surround_images)
+                if step is None and self.fallback_planner:
+                    self.statusBar().showMessage("Planner fallback (ER)...")
+                    QApplication.processEvents()
+                    step = self.fallback_planner.plan(instruction, self.history, img_robot, self.surround_images)
+                    if step is None and self.fallback_planner and self.fallback_planner.last_response:
+                        self._log(f"[PROMPT][ER-Fallback] {self.fallback_planner.last_prompt}")
+                        self._log(f"[RESPONSE][ER-Fallback] {self.fallback_planner.last_response}")
                 
                 if step:
                     action_name = step.get("action")
@@ -680,6 +805,31 @@ class MainWindow(QMainWindow):
                 self.last_api_time = now
                 self._start_vision_job(img_robot, self.current_target)
 
+        # Periodic telemetry logging for post-run analysis
+        if time.time() - self.last_state_log >= 1.0:
+            self.last_state_log = time.time()
+            self._log_state_snapshot()
+
+        # Progress/stall monitoring (lightweight, ER-based)
+        if self.running and not self.scanning and (time.time() - self.last_progress_check >= self.progress_interval):
+            self.last_progress_check = time.time()
+            if self.progress_monitor and self.progress_monitor.model:
+                result = self.progress_monitor.estimate(self.edit_instruction.text(), self.history, [img_robot])
+                if result:
+                    status = result.get("status")
+                    progress = result.get("progress")
+                    comment = result.get("comment", "")
+                    self._log(f"🧭 Progress: {status} ({progress}) {comment}")
+                    # If stalled and idle, trigger a scan to reorient
+                    if status == "STALLED" and not self.current_action:
+                        self.scanning = True
+                        self.scan_step = 0
+                        self.surround_images = []
+                        self.current_action = "scan"
+                        self.action_start_time = time.time()
+                        self.action_duration = 0.0
+                        self.statusBar().showMessage("Progress stalled -> scanning")
+
     def _start_vision_job(self, img_rgb, target):
         self.vision_busy = True
         self.vision_thread = QThread(self)
@@ -718,6 +868,26 @@ class MainWindow(QMainWindow):
         self.list_log.addItem(msg)
         self.list_log.scrollToBottom()
         print(msg)
+        # Persist log to file for post-run analysis
+        try:
+            with self.log_file.open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        except Exception:
+            pass
+
+    def _log_state_snapshot(self):
+        state = self.env.get_robot_state(self.ctrl_left, self.ctrl_right)
+        bbox_txt = self.bbox_display if self.bbox_display else "None"
+        scene_name = getattr(self.env, "xml_path", "unknown")
+        msg = (
+            f"[STATE] action={self.current_action or 'Idle'} "
+            f"pos=({state.position[0]:+.2f},{state.position[1]:+.2f}) "
+            f"yaw={state.yaw_deg:+.1f} "
+            f"motors=L{self.ctrl_left:+.2f}/R{self.ctrl_right:+.2f} "
+            f"bbox={bbox_txt} "
+            f"scene={scene_name}"
+        )
+        self._log(msg)
 
     def on_start(self):
         self.running = True

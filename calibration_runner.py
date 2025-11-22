@@ -58,8 +58,9 @@ def main():
     model = mujoco.MjModel.from_xml_path(SCENE_PATH)
     data = mujoco.MjData(model)
 
-    speeds = [3.0, 4.0, 5.0, 6.0, 7.0]
-    durations = [0.8, 1.0, 1.3, 1.6, 2.0]
+    # Wider search to ensure sufficient torque/rotation
+    speeds = [6.0, 7.0, 8.0, 9.0, 10.0]
+    durations = [1.5, 2.0, 2.5, 3.0]
 
     results: list[TurnResult] = []
 
