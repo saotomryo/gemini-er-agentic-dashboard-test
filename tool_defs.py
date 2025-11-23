@@ -31,7 +31,14 @@ TOOL_DEFS = [
     },
     {
         "name": "move_forward",
-        "description": "Move forward for a short duration (seconds).",
+        "description": "Move forward for a duration (seconds).",
+        "parameters": [
+            {"name": "duration", "type": "number", "description": "Duration in seconds"},
+        ],
+    },
+    {
+        "name": "move_forward_long",
+        "description": "Move forward for a longer duration (seconds), used when target is far and centered.",
         "parameters": [
             {"name": "duration", "type": "number", "description": "Duration in seconds"},
         ],

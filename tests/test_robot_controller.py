@@ -19,6 +19,13 @@ def test_robot_controller_discrete_turn_uses_calibration():
     assert duration == 2.5
 
 
+def test_move_forward_long_defaults():
+    ctrl = RobotController()
+    motors, duration = ctrl.decide_action(None, "move_forward_long")
+    assert motors == [ctrl.base_speed, ctrl.base_speed]
+    assert duration == 2.5
+
+
 def test_robot_controller_approach_centered_speeds():
     ctrl = RobotController()
     # Centered box, moderate size -> should move forward with near-equal speeds

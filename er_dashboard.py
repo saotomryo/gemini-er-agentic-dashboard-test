@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 from typing import List, Optional
 
+from tool_defs import TOOL_DEFS
+
 import cv2
 import mujoco
 import numpy as np
@@ -49,6 +51,7 @@ SCAN_TURN_DURATION = 4.0  # Seconds to approximate 90deg turn
 DEFAULT_TURN_SPEED = 6.0   # Fallback discrete turn speed (calibration can override)
 DEFAULT_TURN_DURATION = 2.0  # Fallback discrete turn duration
 CALIBRATION_FILE = Path("calibration_turn.json")
+PLAN_QUEUE_LIMIT = 4
 
 
 def load_turn_calibration():
@@ -250,18 +253,25 @@ class ERPlannerAssist:
             except Exception as e:
                 print(f"⚠️ ER fallback init error: {e}")
 
-    def plan(self, instruction: str, history: list, img_rgb: np.ndarray, surround_imgs: list = None):
+    def plan(self, instruction: str, history: list, img_rgb: np.ndarray, surround_imgs: list = None, allow_plan_list: bool = False):
         if not self.model:
             return None
         from PIL import Image
         history_str = "\n".join([f"- {h}" for h in history[-5:]])
+        tool_text = json.dumps(TOOL_DEFS, ensure_ascii=False)
         prompt = f"""
-        You are controlling a differential-drive robot. Choose the NEXT action (one step) to achieve: "{instruction}".
+        You are controlling a differential-drive robot. Generate a short plan (1-{PLAN_QUEUE_LIMIT} steps) using the provided tools to achieve: "{instruction}".
         History (recent): 
         {history_str}
-        Allowed actions: scan, turn_left_30, turn_right_30, move_forward_short, approach, stop.
-        If target is visible, prefer approach with target name. If lost, use scan or turn towards remembered direction.
-        Output JSON only: {{"action":"<name>","target":"<target_optional>","reason":"<brief>"}}
+        Tools (JSON):
+        {tool_text}
+        Rules:
+        - Prefer minimal steps to reach target.
+        - If target is visible, use approach(target) or a forward+approach combination.
+        - If lost, scan or turn toward last seen direction.
+        Output JSON only:
+        {{"plan": [{{"tool":"<name>","args":{{...}}}}...], "reason":"<brief>"}}
+        If you only need one step, return a single-element plan.
         """
         contents = [prompt]
         if img_rgb is not None:
@@ -278,7 +288,10 @@ class ERPlannerAssist:
                 generation_config={"response_mime_type": "application/json"}
             )
             self.last_response = response.text
-            return json.loads(response.text)
+            data = json.loads(response.text)
+            if allow_plan_list and isinstance(data, dict) and "plan" in data:
+                return data
+            return data
         except Exception as e:
             print(f"⚠️ ER fallback plan error: {e}")
             return None
@@ -435,8 +448,15 @@ class RobotController:
             return [-turn_speed, turn_speed], self.discrete_turn_duration
         elif action_type == "turn_right_30":
             return [turn_speed, -turn_speed], self.discrete_turn_duration
+        elif action_type == "turn_left":  # angle-based
+            return [-turn_speed, turn_speed], self.discrete_turn_duration
+        elif action_type == "turn_right":
+            return [turn_speed, -turn_speed], self.discrete_turn_duration
         elif action_type == "move_forward_short":
             return [self.base_speed, self.base_speed], 1.0
+        elif action_type == "move_forward" or action_type == "move_forward_long":
+            dur = 1.0 if action_type == "move_forward" else 2.5
+            return [self.base_speed, self.base_speed], dur
         elif action_type == "stop":
             return [0.0, 0.0], 0.0
 
@@ -555,6 +575,7 @@ class MainWindow(QMainWindow):
         self.action_duration = 0.0
         self.thinking = False
         self.waiting_for_vision = False  # True while an async vision call is in flight
+        self.plan_queue = []  # list of {"tool":..., "args":...}
         
         # Scanning State
         self.scanning = False
@@ -702,19 +723,32 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 
                 instruction = self.edit_instruction.text()
-                step = self.planner.decide_next_step(instruction, self.history, img_robot, self.surround_images)
+                step = None
+                # If we already have a queued plan, pop next step
+                if self.plan_queue:
+                    step = self.plan_queue.pop(0)
+                else:
+                    step = self.planner.decide_next_step(instruction, self.history, img_robot, self.surround_images)
                 if step is None and self.fallback_planner:
                     self.statusBar().showMessage("Planner fallback (ER)...")
                     QApplication.processEvents()
-                    step = self.fallback_planner.plan(instruction, self.history, img_robot, self.surround_images)
-                    if step is None and self.fallback_planner and self.fallback_planner.last_response:
+                    step = self.fallback_planner.plan(instruction, self.history, img_robot, self.surround_images, allow_plan_list=True)
+                    if isinstance(step, dict) and "plan" in step:
+                        # Push plan queue and pop first
+                        self.plan_queue = step["plan"][:PLAN_QUEUE_LIMIT]
+                        self._log(f"[PLAN] queued {len(self.plan_queue)} steps (ER)")
+                        step = self.plan_queue.pop(0) if self.plan_queue else None
+                    elif step is None and self.fallback_planner and self.fallback_planner.last_response:
                         self._log(f"[PROMPT][ER-Fallback] {self.fallback_planner.last_prompt}")
                         self._log(f"[RESPONSE][ER-Fallback] {self.fallback_planner.last_response}")
                 
                 if step:
-                    action_name = step.get("action")
-                    target = step.get("target")
+                    action_name = step.get("action") or step.get("tool")
+                    target = step.get("target") or (step.get("args") or {}).get("target")
+                    duration_arg = (step.get("args") or {}).get("duration")
+                    angle_arg = (step.get("args") or {}).get("angle_deg")
                     reason = step.get("reason")
+                    args = step.get("args") or {}
                     
                     self._log(f"🤖 {action_name} ({reason})")
                     self.history.append(f"{action_name}: {reason}")
@@ -746,9 +780,29 @@ class MainWindow(QMainWindow):
                         self.skip_motion_until = time.time() + 3.0
                         if not self.vision_busy:
                              self._start_vision_job(img_robot, target)
+                    elif action_name in ("turn_left", "turn_right"):
+                        motors, duration = self.controller.decide_action(None, action_name)
+                        if angle_arg is not None:
+                            scale = max(0.5, float(angle_arg) / 30.0)
+                            duration *= scale
+                        if duration_arg is not None:
+                            duration = float(duration_arg)
+                        self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
+                        self.current_action = action_name
+                        self.action_start_time = now
+                        self.action_duration = duration
+                        self._log_action_debug(action_name, motors, duration, f"angle={angle_arg}")
+                        self.statusBar().showMessage(f"Executing: {action_name}")
                     else:
                         # Discrete Action
                         motors, duration = self.controller.decide_action(None, action_name)
+                        # Simple scaling for angle-based turn commands
+                        if angle_arg is not None and "turn_" in action_name:
+                            scale = max(0.5, float(angle_arg) / 30.0)
+                            duration *= scale
+                        # Override duration if plan provides it
+                        if duration_arg is not None:
+                            duration = float(duration_arg)
                         self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
                         self.current_action = action_name
                         self.action_start_time = now
