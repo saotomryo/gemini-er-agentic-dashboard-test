@@ -732,7 +732,6 @@ class MainWindow(QMainWindow):
         self.btn_stop = QPushButton("STOP")
         self.btn_stop.setStyleSheet("background-color: red; color: white; font-weight: bold;")
         
-        self.btn_randomize = QPushButton("Randomize Poles")
         self.combo_scene = QComboBox()
         self.combo_scene.addItem("scenes/scene.xml")
         self.combo_scene.addItem("scenes/scene_obstacle.xml")
@@ -747,7 +746,6 @@ class MainWindow(QMainWindow):
         
         self.btn_start.clicked.connect(self.on_start)
         self.btn_stop.clicked.connect(self.on_stop)
-        self.btn_randomize.clicked.connect(self.on_randomize)
         self.combo_scene.currentTextChanged.connect(self.on_scene_changed)
 
         control_layout.addWidget(QLabel("Scene:"))
@@ -756,7 +754,6 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.edit_instruction)
         control_layout.addWidget(self.btn_start)
         control_layout.addWidget(self.btn_stop)
-        control_layout.addWidget(self.btn_randomize)
 
         # 4. Log List
         self.list_log = QListWidget()
@@ -1186,9 +1183,6 @@ class MainWindow(QMainWindow):
         self.thinking = False
         self._log("⏹️ Agent Stopped")
 
-    def on_randomize(self):
-        self.env.randomize_poles()
-        self._log("🎲 Poles Randomized")
 
     def on_scene_changed(self, text):
         self.env.reload_scene(text)
