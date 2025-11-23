@@ -37,7 +37,6 @@ Gemini Robotics-ER を使った自律ロボット制御デモ。トップレベ�
 
 ## 使い方（概要）
 - 依存をインストール後、`python er_dashboard.py` でQt版ダッシュボードを起動。
-- OpenCV版デモは `python sim_dashboard.py` 。
 - ログは `logs/run_*.log` に保存されます。デバッグは `ER_DEBUG=1` を環境変数で指定。
 
 詳しくは `docs/` の各ドキュメントを参照してください。 README は随時更新します。  
