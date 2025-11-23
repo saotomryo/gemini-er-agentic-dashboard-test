@@ -1,6 +1,6 @@
 # Robotics-ER Dashboard
 
-Gemini Robotics-ER を使った自律ロボット制御デモ。トップレベルの実行スクリプトは `er_dashboard.py`（Qt UI）と `sim_dashboard.py`（OpenCV デモ）です。それ以外のドキュメントやモジュールはサブフォルダに整理しています。
+Gemini Robotics-ER を使った自律ロボット制御デモ。トップレベルの実行スクリプトは `er_dashboard.py`（Qt UI）です。それ以外のドキュメントやモジュールはサブフォルダに整理しています。
 
 ## 構成
 - `er_dashboard.py` / `ai_robot_er.py`: 実行スクリプト
