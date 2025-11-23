@@ -1,6 +1,6 @@
 import json
 
-from tool_defs import TOOL_DEFS, list_tool_names
+from src.tool_defs import TOOL_DEFS, list_tool_names
 
 
 def test_tool_defs_include_move_forward_long():

@@ -111,11 +111,12 @@ def detect_with_er_model(img_array):
 # 4. メインループ
 # ==========================================
 # XMLファイルがあるか確認
-if not os.path.exists('scene.xml'):
-    print("❌ エラー: 'scene.xml' が見つかりません。")
+SCENE_PATH = "scenes/scene.xml"
+if not os.path.exists(SCENE_PATH):
+    print(f"❌ エラー: '{SCENE_PATH}' が見つかりません。")
     exit(1)
 
-model_mj = mujoco.MjModel.from_xml_path('scene.xml')
+model_mj = mujoco.MjModel.from_xml_path(SCENE_PATH)
 data_mj = mujoco.MjData(model_mj)
 
 robot_renderer = mujoco.Renderer(model_mj, height=240, width=320)

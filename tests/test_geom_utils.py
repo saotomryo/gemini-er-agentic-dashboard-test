@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from geom_utils import normalized_point_to_world
+from src.geom_utils import normalized_point_to_world
 
 
 def test_normalized_point_to_world_center_downward():

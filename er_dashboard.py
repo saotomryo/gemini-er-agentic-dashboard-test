@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 from typing import List, Optional
 
-from tool_defs import TOOL_DEFS
+from src.tool_defs import TOOL_DEFS
 
 import cv2
 import mujoco
@@ -39,7 +39,7 @@ except ImportError:
     sys.exit(1)
 
 
-SCENE_PATH = "scene.xml"
+SCENE_PATH = "scenes/scene.xml"
 # Robotics-ER model for Vision
 VISION_MODEL_NAME = "models/gemini-robotics-er-1.5-preview"
 PLANNER_MODEL_NAME = "models/gemini-robotics-er-1.5-preview"
@@ -260,18 +260,20 @@ class ERPlannerAssist:
         history_str = "\n".join([f"- {h}" for h in history[-5:]])
         tool_text = json.dumps(TOOL_DEFS, ensure_ascii=False)
         prompt = f"""
-        You are controlling a differential-drive robot. Generate a short plan (1-{PLAN_QUEUE_LIMIT} steps) using the provided tools to achieve: "{instruction}".
+        You are controlling a differential-drive robot. Generate a short plan using the provided tools to achieve: "{instruction}".
+        Allowed steps: 1-{PLAN_QUEUE_LIMIT}. Use FEWER steps when the path is clear and target is far (prefer move_forward_long 2-3s); use SHORTER steps only near target/obstacle.
         History (recent): 
         {history_str}
         Tools (JSON):
         {tool_text}
         Rules:
         - Prefer minimal steps to reach target.
-        - If target is visible, use approach(target) or a forward+approach combination.
+        - If target is visible and centered, use approach(target) or a longer forward then approach.
         - If lost, scan or turn toward last seen direction.
+        - Near obstacles/target => short steps; clear & far => long forward.
         Output JSON only:
-        {{"plan": [{{"tool":"<name>","args":{{...}}}}...], "reason":"<brief>"}}
-        If you only need one step, return a single-element plan.
+        {{"plan": [{{"tool":"<name>","args":{{...}}}}...], "reason":"<brief>", "step_count": <int_optional>}}
+        If you only need one step, return a single-element plan. step_count is optional; if provided, it is the intended number of steps.
         """
         contents = [prompt]
         if img_rgb is not None:
@@ -338,6 +340,67 @@ class ERProgressMonitor:
             return json.loads(response.text)
         except Exception as e:
             print(f"⚠️ ER progress error: {e}")
+            return None
+
+
+class ERMapper:
+    """Use ER to estimate map/target positions from image + history."""
+    def __init__(self, model_name: str = VISION_MODEL_NAME):
+        self.model_name = model_name
+        self.model = None
+        self.last_prompt = None
+        self.last_response = None
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            try:
+                self.model = genai.GenerativeModel(self.model_name)
+                print(f"✅ ER mapper: {self.model_name}")
+            except Exception as e:
+                print(f"⚠️ ER mapper init error: {e}")
+
+    def estimate_map(self, instruction: str, history: list, img_rgb: np.ndarray, surround_imgs: list = None, odom: dict = None):
+        """Ask ER to return a lightweight map/target estimation."""
+        if not self.model:
+            return None
+        from PIL import Image
+        history_str = "\n".join([f"- {h}" for h in history[-5:]])
+        odom_text = json.dumps(odom or {}, ensure_ascii=False)
+        prompt = f"""
+        You control a differential-drive robot on a flat plane.
+        Task: "{instruction}"
+        Recent actions:
+        {history_str}
+        Odom/pose hint (if any): {odom_text}
+
+        Return JSON only:
+        {{
+          "robot_pose": {{"x": <float>, "y": <float>, "yaw_deg": <float>}},
+          "targets": [{{"label": "red pole", "pose": {{"x": <float>, "y": <float>}}, "confidence": <0..1>}}],
+          "map": [{{"cell": [<int>,<int>], "type": "obstacle|target|free", "label": "<optional>"}}],
+          "reason": "<brief>"
+        }}
+        If unknown, use empty arrays and nulls, do not invent objects.
+        """
+        contents = [prompt]
+        if img_rgb is not None:
+            contents.append("Current View:")
+            contents.append(Image.fromarray(img_rgb))
+        if surround_imgs:
+            contents.append("Surround View (Front, Right, Back, Left):")
+            for img in surround_imgs:
+                contents.append(Image.fromarray(img))
+        try:
+            self.last_prompt = prompt
+            response = self.model.generate_content(
+                contents,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            self.last_response = response.text
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"⚠️ ER map error: {e}")
             return None
 
 
@@ -455,7 +518,7 @@ class RobotController:
         elif action_type == "move_forward_short":
             return [self.base_speed, self.base_speed], 1.0
         elif action_type == "move_forward" or action_type == "move_forward_long":
-            dur = 1.0 if action_type == "move_forward" else 2.5
+            dur = 1.5 if action_type == "move_forward" else 3.0
             return [self.base_speed, self.base_speed], dur
         elif action_type == "stop":
             return [0.0, 0.0], 0.0
@@ -505,7 +568,7 @@ class RobotController:
             right = speed - turn
             
             # print(f"🔍 [CTRL] cx={obj_center_x:.1f}, err={error_x:.1f}, turn={turn:.1f}, L/R={left:.1f}/{right:.1f}")
-            duration = 0.2 if abs(error_x) < 80 else 0.1
+            duration = 0.25 if abs(error_x) < 120 else 0.12
             return [np.clip(left, -20, 20), np.clip(right, -20, 20)], duration # Longer step if centered
         
         return [0.0, 0.0], 0.0
@@ -539,6 +602,7 @@ class MainWindow(QMainWindow):
         self.planner = AgentPlanner()
         self.fallback_planner = ERPlannerAssist()
         self.progress_monitor = ERProgressMonitor()
+        self.mapper = ERMapper()
         calib = load_turn_calibration()
         self.controller = RobotController(turn_calibration=calib)
         if calib:
@@ -559,7 +623,7 @@ class MainWindow(QMainWindow):
         self.vision_job = None
         self.bbox_display = None
         self.last_api_time = 0.0
-        self.api_interval = 1.5
+        self.api_interval = 3.0
         self.current_target = None
         self.last_progress_check = 0.0
         self.progress_interval = 6.0 # seconds
@@ -567,6 +631,9 @@ class MainWindow(QMainWindow):
         self.last_motion_check = time.time()
         self.last_pose_for_motion = None
         self.skip_motion_until = 0.0
+        self.last_map_check = 0.0
+        self.map_interval = 8.0
+        self.estimated_map = None
         
         # Task Management
         self.history = []
@@ -576,6 +643,7 @@ class MainWindow(QMainWindow):
         self.thinking = False
         self.waiting_for_vision = False  # True while an async vision call is in flight
         self.plan_queue = []  # list of {"tool":..., "args":...}
+        self.last_plan_info = None  # {"from":"planner|fallback", "count":int, "intended":int}
         
         # Scanning State
         self.scanning = False
@@ -636,13 +704,13 @@ class MainWindow(QMainWindow):
         
         self.btn_randomize = QPushButton("Randomize Poles")
         self.combo_scene = QComboBox()
-        self.combo_scene.addItem("scene.xml")
-        self.combo_scene.addItem("scene_obstacle.xml")
-        self.combo_scene.addItem("scene_complex.xml")
-        self.combo_scene.addItem("scene_multi_poles.xml")
-        self.combo_scene.addItem("scene_maze.xml")
-        self.combo_scene.addItem("scene_clutter.xml")
-        self.combo_scene.addItem("scene_calibration.xml")
+        self.combo_scene.addItem("scenes/scene.xml")
+        self.combo_scene.addItem("scenes/scene_obstacle.xml")
+        self.combo_scene.addItem("scenes/scene_complex.xml")
+        self.combo_scene.addItem("scenes/scene_multi_poles.xml")
+        self.combo_scene.addItem("scenes/scene_maze.xml")
+        self.combo_scene.addItem("scenes/scene_clutter.xml")
+        self.combo_scene.addItem("scenes/scene_calibration.xml")
         
         self.edit_instruction = QLineEdit("Go to the red pole")
         self.edit_instruction.setPlaceholderText("Enter instruction")
@@ -728,6 +796,19 @@ class MainWindow(QMainWindow):
                 if self.plan_queue:
                     step = self.plan_queue.pop(0)
                 else:
+                    # Optional map update at planning milestones only
+                    if (time.time() - self.last_map_check) >= self.map_interval and self.mapper and self.mapper.model:
+                        self.last_map_check = time.time()
+                        odom_hint = {
+                            "last_pose": self._last_pose_for_map(),
+                            "bbox": self.bbox_display,
+                        }
+                        res = self.mapper.estimate_map(instruction, self.history, img_robot, self.surround_images, odom_hint)
+                        if res:
+                            self.estimated_map = res
+                            reason = res.get("reason", "")
+                            self._log(f"[MAP] updated targets={res.get('targets')} reason={reason}")
+
                     step = self.planner.decide_next_step(instruction, self.history, img_robot, self.surround_images)
                 if step is None and self.fallback_planner:
                     self.statusBar().showMessage("Planner fallback (ER)...")
@@ -735,8 +816,16 @@ class MainWindow(QMainWindow):
                     step = self.fallback_planner.plan(instruction, self.history, img_robot, self.surround_images, allow_plan_list=True)
                     if isinstance(step, dict) and "plan" in step:
                         # Push plan queue and pop first
-                        self.plan_queue = step["plan"][:PLAN_QUEUE_LIMIT]
-                        self._log(f"[PLAN] queued {len(self.plan_queue)} steps (ER)")
+                        raw_plan = step.get("plan") or []
+                        intended = step.get("step_count")
+                        try:
+                            intended_n = int(intended) if intended is not None else len(raw_plan)
+                        except (ValueError, TypeError):
+                            intended_n = len(raw_plan)
+                        take_n = min(PLAN_QUEUE_LIMIT, intended_n, len(raw_plan))
+                        self.plan_queue = raw_plan[:take_n]
+                        self._log(f"[PLAN] queued {len(self.plan_queue)} steps (ER), intended={intended}")
+                        self.last_plan_info = {"from": "ER-fallback", "count": len(self.plan_queue)+ (1 if step else 0), "intended": intended}
                         step = self.plan_queue.pop(0) if self.plan_queue else None
                     elif step is None and self.fallback_planner and self.fallback_planner.last_response:
                         self._log(f"[PROMPT][ER-Fallback] {self.fallback_planner.last_prompt}")
@@ -750,7 +839,10 @@ class MainWindow(QMainWindow):
                     reason = step.get("reason")
                     args = step.get("args") or {}
                     
-                    self._log(f"🤖 {action_name} ({reason})")
+                    plan_ctx = ""
+                    if self.last_plan_info:
+                        plan_ctx = f" [plan_count={self.last_plan_info.get('count')} intended={self.last_plan_info.get('intended')}]"
+                    self._log(f"🤖 {action_name} ({reason}){plan_ctx}")
                     self.history.append(f"{action_name}: {reason}")
                     
                     if action_name == "stop":
@@ -989,15 +1081,25 @@ class MainWindow(QMainWindow):
         state = self.env.get_robot_state(self.ctrl_left, self.ctrl_right)
         bbox_txt = self.bbox_display if self.bbox_display else "None"
         scene_name = getattr(self.env, "xml_path", "unknown")
+        plan_ctx = ""
+        if self.last_plan_info:
+            plan_ctx = f" plan_queue={self.last_plan_info.get('count',0)} intended={self.last_plan_info.get('intended')}"
         msg = (
             f"[STATE] action={self.current_action or 'Idle'} "
             f"pos=({state.position[0]:+.2f},{state.position[1]:+.2f}) "
             f"yaw={state.yaw_deg:+.1f} "
             f"motors=L{self.ctrl_left:+.2f}/R{self.ctrl_right:+.2f} "
             f"bbox={bbox_txt} "
-            f"scene={scene_name}"
+            f"scene={scene_name}{plan_ctx}"
         )
         self._log(msg)
+
+    def _last_pose_for_map(self):
+        try:
+            state = self.env.get_robot_state(self.ctrl_left, self.ctrl_right)
+            return {"x": float(state.position[0]), "y": float(state.position[1]), "yaw_deg": float(state.yaw_deg)}
+        except Exception:
+            return {}
 
     def on_start(self):
         self.running = True
