@@ -10,7 +10,7 @@ Gemini Robotics-ER を使った自律ロボット制御デモ。トップレベ�
 - `logs/`: 実行ログ（`run_*.log`）
 - シーンXML: `scenes/scene*.xml`
 
-![トップ画面](top_screen.jpg)
+![トップ画面](jpg/top_screen.jpg)
 
 ## 利用手順
 1. リポジトリ取得  
