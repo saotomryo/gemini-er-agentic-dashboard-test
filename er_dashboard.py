@@ -412,6 +412,7 @@ class VisionSystem:
         self.model = None
         self.last_prompt = None
         self.last_response = None
+        self.logger = None  # Optional callable for logging to UI/file
 
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -461,21 +462,27 @@ class VisionSystem:
                 box = data["box_2d"]
 
             if box:
-                print(f"[VISION] Found {target_description}: {box}")
+                self._log(f"[VISION] Found {target_description}: {box}")
                 return box
-            print(f"[VISION] {target_description} not found.")
+            self._log(f"[VISION] {target_description} not found.")
             if self.last_prompt:
                 self._log(f"[PROMPT][VISION] {self.last_prompt}")
             if self.last_response:
                 self._log(f"[RESPONSE][VISION] {self.last_response}")
             return None
         except Exception as e:
-            print(f"⚠️ Vision detect error: {e}")
+            self._log(f"⚠️ Vision detect error: {e}")
             if self.last_prompt:
                 self._log(f"[PROMPT][VISION] {self.last_prompt}")
             if self.last_response:
                 self._log(f"[RESPONSE][VISION] {self.last_response}")
             return None
+
+    def _log(self, msg):
+        if self.logger:
+            self.logger(msg)
+        else:
+            print(msg)
 
 
 class RobotController:
@@ -484,7 +491,7 @@ class RobotController:
     def __init__(self, turn_calibration=None):
         self.center_x = 500
         self.kp = 0.05
-        self.base_speed = 4.0 # Forward speed
+        self.base_speed = 6.0 # Forward speed (boosted to speed up approach)
         self.turn_speed = 1.25
         # Discrete turn parameters (can be overridden by calibration file)
         if turn_calibration:
@@ -548,6 +555,9 @@ class RobotController:
                 speed = max(2.5, self.base_speed * 0.65)
             else:
                 speed = self.base_speed
+                # Far and centered-ish -> aggressive forward speed
+                if near_center and obj_height < 500:
+                    speed = max(speed * 1.3, speed + 2.0)
 
             # If the target is very close to a screen edge, reduce turning gain to avoid wild spins
             kp = 0.05
@@ -568,7 +578,7 @@ class RobotController:
             right = speed - turn
             
             # print(f"🔍 [CTRL] cx={obj_center_x:.1f}, err={error_x:.1f}, turn={turn:.1f}, L/R={left:.1f}/{right:.1f}")
-            duration = 0.25 if abs(error_x) < 120 else 0.12
+            duration = 0.35 if (abs(error_x) < 120 and obj_height < 500) else (0.25 if abs(error_x) < 120 else 0.12)
             return [np.clip(left, -20, 20), np.clip(right, -20, 20)], duration # Longer step if centered
         
         return [0.0, 0.0], 0.0
@@ -599,6 +609,7 @@ class MainWindow(QMainWindow):
         # Components
         self.env = SimulationEnv()
         self.vision = VisionSystem()
+        self.vision.logger = self._log
         self.planner = AgentPlanner()
         self.fallback_planner = ERPlannerAssist()
         self.progress_monitor = ERProgressMonitor()
@@ -756,6 +767,7 @@ class MainWindow(QMainWindow):
         self._update_info()
 
     def _on_tick(self):
+        step = None  # current planned step (may remain None)
         # Physics Step
         if self.running:
             for _ in range(SIM_STEPS_PER_TICK):
@@ -807,7 +819,15 @@ class MainWindow(QMainWindow):
                         if res:
                             self.estimated_map = res
                             reason = res.get("reason", "")
-                            self._log(f"[MAP] updated targets={res.get('targets')} reason={reason}")
+                            targets = res.get("targets")
+                            map_cells = res.get("map")
+                            self._log(f"[MAP] updated targets={targets} map_cells_count={len(map_cells) if map_cells else 0} reason={reason}")
+                            # If we have both bbox and target pose, log the rough delta (image-space center only)
+                            if self.bbox_display and targets:
+                                ymin, xmin, ymax, xmax = self.bbox_display
+                                cx = (xmin + xmax) / 2.0
+                                cy = (ymin + ymax) / 2.0
+                                self._log(f"[MAP] current_bbox_center=({cx:.1f},{cy:.1f})")
 
                     step = self.planner.decide_next_step(instruction, self.history, img_robot, self.surround_images)
                 if step is None and self.fallback_planner:
@@ -830,80 +850,81 @@ class MainWindow(QMainWindow):
                     elif step is None and self.fallback_planner and self.fallback_planner.last_response:
                         self._log(f"[PROMPT][ER-Fallback] {self.fallback_planner.last_prompt}")
                         self._log(f"[RESPONSE][ER-Fallback] {self.fallback_planner.last_response}")
+                if step and not self.plan_queue:
+                    # Single step from planner (or leftover from plan)
+                    if self.last_plan_info is None:
+                        self.last_plan_info = {"from": "planner", "count": 1, "intended": 1}
+            
+            if step:
+                action_name = step.get("action") or step.get("tool")
+                target = step.get("target") or (step.get("args") or {}).get("target")
+                duration_arg = (step.get("args") or {}).get("duration")
+                angle_arg = (step.get("args") or {}).get("angle_deg")
+                reason = step.get("reason")
+                args = step.get("args") or {}
                 
-                if step:
-                    action_name = step.get("action") or step.get("tool")
-                    target = step.get("target") or (step.get("args") or {}).get("target")
-                    duration_arg = (step.get("args") or {}).get("duration")
-                    angle_arg = (step.get("args") or {}).get("angle_deg")
-                    reason = step.get("reason")
-                    args = step.get("args") or {}
-                    
-                    plan_ctx = ""
-                    if self.last_plan_info:
-                        plan_ctx = f" [plan_count={self.last_plan_info.get('count')} intended={self.last_plan_info.get('intended')}]"
-                    self._log(f"🤖 {action_name} ({reason}){plan_ctx}")
-                    self.history.append(f"{action_name}: {reason}")
-                    
-                    if action_name == "stop":
-                        self.running = False
-                        self.statusBar().showMessage("Goal Reached!")
-                        self._log("✅ Goal Reached!")
-                    elif action_name == "scan":
-                        self.scanning = True
-                        self.scan_step = 0
-                        self.surround_images = []
-                        self.current_action = "scan"
-                        self.action_start_time = now
-                        self.action_duration = 0.0 # Immediate transition to scan logic
-                        self.statusBar().showMessage("Scanning...")
-                        self._log("🔄 Scanning surroundings...")
-                    elif action_name == "approach":
-                        # Need vision for approach (keep servoing until target reached/lost)
-                        self.current_action = "approach"
-                        self.current_target = target
-                        self.waiting_for_vision = True
-                        self.action_start_time = now
-                        self.action_duration = 0.0
-                        self._log_action_debug("approach_init", [self.ctrl_left, self.ctrl_right], 0.0, f"target={target}")
-                        
-                        # Reset motion baseline and skip stall detection briefly
-                        self.last_pose_for_motion = (time.time(), self.env.get_robot_state(self.ctrl_left, self.ctrl_right))
-                        self.skip_motion_until = time.time() + 3.0
-                        if not self.vision_busy:
-                             self._start_vision_job(img_robot, target)
-                    elif action_name in ("turn_left", "turn_right"):
-                        motors, duration = self.controller.decide_action(None, action_name)
-                        if angle_arg is not None:
-                            scale = max(0.5, float(angle_arg) / 30.0)
-                            duration *= scale
-                        if duration_arg is not None:
-                            duration = float(duration_arg)
-                        self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
-                        self.current_action = action_name
-                        self.action_start_time = now
-                        self.action_duration = duration
-                        self._log_action_debug(action_name, motors, duration, f"angle={angle_arg}")
-                        self.statusBar().showMessage(f"Executing: {action_name}")
-                    else:
-                        # Discrete Action
-                        motors, duration = self.controller.decide_action(None, action_name)
-                        # Simple scaling for angle-based turn commands
-                        if angle_arg is not None and "turn_" in action_name:
-                            scale = max(0.5, float(angle_arg) / 30.0)
-                            duration *= scale
-                        # Override duration if plan provides it
-                        if duration_arg is not None:
-                            duration = float(duration_arg)
-                        self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
-                        self.current_action = action_name
-                        self.action_start_time = now
-                        self.action_duration = duration
-                        self._log_action_debug(action_name, motors, duration)
-                        self.statusBar().showMessage(f"Executing: {action_name}")
-                else:
-                    self._log("❌ Planning Failed")
+                plan_ctx = ""
+                if self.last_plan_info:
+                    plan_ctx = f" [plan_count={self.last_plan_info.get('count')} intended={self.last_plan_info.get('intended')}]"
+                self._log(f"🤖 {action_name} ({reason}){plan_ctx}")
+                self.history.append(f"{action_name}: {reason}")
+                
+                if action_name == "stop":
                     self.running = False
+                    self.statusBar().showMessage("Goal Reached!")
+                    self._log("✅ Goal Reached!")
+                elif action_name == "scan":
+                    self.scanning = True
+                    self.scan_step = 0
+                    self.surround_images = []
+                    self.current_action = "scan"
+                    self.action_start_time = now
+                    self.action_duration = 0.0 # Immediate transition to scan logic
+                    self.statusBar().showMessage("Scanning...")
+                    self._log("🔄 Scanning surroundings...")
+                elif action_name == "approach":
+                    # Need vision for approach (keep servoing until target reached/lost)
+                    self.current_action = "approach"
+                    self.current_target = target
+                    self.waiting_for_vision = True
+                    self.action_start_time = now
+                    self.action_duration = 0.0
+                    self._log_action_debug("approach_init", [self.ctrl_left, self.ctrl_right], 0.0, f"target={target}")
+                    
+                    # Reset motion baseline and skip stall detection briefly
+                    self.last_pose_for_motion = (time.time(), self.env.get_robot_state(self.ctrl_left, self.ctrl_right))
+                    self.skip_motion_until = time.time() + 3.0
+                    if not self.vision_busy:
+                        self._start_vision_job(img_robot, target)
+                elif action_name in ("turn_left", "turn_right"):
+                    motors, duration = self.controller.decide_action(None, action_name)
+                    if angle_arg is not None:
+                        scale = max(0.5, float(angle_arg) / 30.0)
+                        duration *= scale
+                    if duration_arg is not None:
+                        duration = float(duration_arg)
+                    self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
+                    self.current_action = action_name
+                    self.action_start_time = now
+                    self.action_duration = duration
+                    self._log_action_debug(action_name, motors, duration, f"angle={angle_arg}")
+                    self.statusBar().showMessage(f"Executing: {action_name}")
+                else:
+                    # Discrete Action
+                    motors, duration = self.controller.decide_action(None, action_name)
+                    # Simple scaling for angle-based turn commands
+                    if angle_arg is not None and "turn_" in action_name:
+                        scale = max(0.5, float(angle_arg) / 30.0)
+                        duration *= scale
+                    # Override duration if plan provides it
+                    if duration_arg is not None:
+                        duration = float(duration_arg)
+                    self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
+                    self.current_action = action_name
+                    self.action_start_time = now
+                    self.action_duration = duration
+                    self._log_action_debug(action_name, motors, duration)
+                    self.statusBar().showMessage(f"Executing: {action_name}")
 
         # Handle Scanning Logic
         if self.scanning:
@@ -1056,6 +1077,14 @@ class MainWindow(QMainWindow):
             motors, duration = self.controller.decide_action(bbox, "approach")
             self.ctrl_left, self.ctrl_right = float(motors[0]), float(motors[1])
             self._log_action_debug("approach", motors, duration, "vision_update")
+            # Extra tuning info for approach: bbox center/height/error
+            if bbox and DEBUG_MODE:
+                ymin, xmin, ymax, xmax = bbox
+                cx = (xmin + xmax) / 2.0
+                cy = (ymin + ymax) / 2.0
+                h = ymax - ymin
+                err = cx - self.controller.center_x
+                self._log(f"[TUNE][approach] bbox_c=({cx:.1f},{cy:.1f}) h={h:.1f} err_x={err:.1f} motors=L{motors[0]:+.2f}/R{motors[1]:+.2f}")
             
             # If target reached or lost, we finish this step
             if motors == [0.0, 0.0]:
@@ -1090,8 +1119,13 @@ class MainWindow(QMainWindow):
             f"yaw={state.yaw_deg:+.1f} "
             f"motors=L{self.ctrl_left:+.2f}/R{self.ctrl_right:+.2f} "
             f"bbox={bbox_txt} "
-            f"scene={scene_name}{plan_ctx}"
+            f"scene={scene_name}{plan_ctx} "
+            f"speed=F{self.controller.base_speed:.2f}/T{self.controller.turn_speed:.2f}"
         )
+        if self.estimated_map:
+            targets = self.estimated_map.get("targets")
+            if targets:
+                msg += f" map_targets={targets}"
         self._log(msg)
 
     def _last_pose_for_map(self):

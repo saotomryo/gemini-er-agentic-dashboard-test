@@ -23,7 +23,7 @@ def test_move_forward_long_defaults():
     ctrl = RobotController()
     motors, duration = ctrl.decide_action(None, "move_forward_long")
     assert motors == [ctrl.base_speed, ctrl.base_speed]
-    assert duration == 2.5
+    assert duration == 3.0
 
 
 def test_robot_controller_approach_centered_speeds():
