@@ -52,6 +52,8 @@ DEFAULT_TURN_SPEED = 6.0   # Fallback discrete turn speed (calibration can overr
 DEFAULT_TURN_DURATION = 2.0  # Fallback discrete turn duration
 CALIBRATION_FILE = Path("calibration_turn.json")
 PLAN_QUEUE_LIMIT = 4
+VISION_MISS_MAX = 2
+EDGE_LOSS_MAX = 2
 
 
 def load_turn_calibration():
@@ -113,6 +115,9 @@ class SimulationEnv:
         
         # Initial randomization
         self.randomize_poles()
+        # Settle a few steps so initial render is valid
+        for _ in range(10):
+            mujoco.mj_step(self.model, self.data)
 
     def step(self, ctrl_left: float, ctrl_right: float):
         self.data.ctrl[0] = ctrl_right
@@ -127,6 +132,11 @@ class SimulationEnv:
         self.global_renderer.update_scene(self.data, camera="global_cam")
         img_global = self.global_renderer.render()
         return img_robot, img_global
+
+    def reset_view(self):
+        # Step once and render to ensure images are fresh (for scene load/start)
+        self.step(0.0, 0.0)
+        return self.get_images()
 
     def get_robot_state(self, ctrl_left: float, ctrl_right: float) -> RobotState:
         pos = np.array(self.data.xpos[self.robot_bid])
@@ -436,11 +446,11 @@ class VisionSystem:
 
         # Prompt from ai_robot_er.py
         prompt = f"""
-        Detect ONLY the {target_description} (red vertical cylinder target) in the image.
-        Ignore other objects such as blue blocks or non-red items.
-        Return a JSON array. Each element must have key "box_2d" with [ymin, xmin, ymax, xmax] (all 0-1000 normalized).
+        Detect ONLY the {target_description} (target color) in the image.
+        Ignore other objects such as blue blocks or non-target colors.
+        Return a JSON array. Each element must have keys "box_2d" with [ymin, xmin, ymax, xmax] (all 0-1000 normalized) AND "label" (e.g., "{target_description}").
         If no target is found, return [].
-        Example: [{{"box_2d":[200,300,800,400]}}]
+        Example: [{{"box_2d":[200,300,800,400], "label":"{target_description}"}}]
         """
         self.last_prompt = prompt
 
@@ -491,8 +501,9 @@ class RobotController:
     def __init__(self, turn_calibration=None):
         self.center_x = 500
         self.kp = 0.05
-        self.base_speed = 6.0 # Forward speed (boosted to speed up approach)
+        self.base_speed = 8.0 # Forward speed (further boosted)
         self.turn_speed = 1.25
+        self.min_move_speed = 2.5  # Minimum magnitude to ensure visible motion in approach
         # Discrete turn parameters (can be overridden by calibration file)
         if turn_calibration:
             self.discrete_turn_speed = float(turn_calibration.get("speed", DEFAULT_TURN_SPEED))
@@ -557,7 +568,7 @@ class RobotController:
                 speed = self.base_speed
                 # Far and centered-ish -> aggressive forward speed
                 if near_center and obj_height < 500:
-                    speed = max(speed * 1.3, speed + 2.0)
+                    speed = max(speed * 1.5, speed + 3.0)
 
             # If the target is very close to a screen edge, reduce turning gain to avoid wild spins
             kp = 0.05
@@ -567,7 +578,8 @@ class RobotController:
 
             # P-Control
             error_x = obj_center_x - self.center_x
-            turn = error_x * kp
+            # Positive error_x => target is to the RIGHT, so we need to turn RIGHT (increase right speed)
+            turn = -error_x * kp
             # If almost centered, prefer straight movement and longer step
             if abs(error_x) < 80:
                 turn = 0.0
@@ -576,9 +588,15 @@ class RobotController:
 
             left = speed + turn
             right = speed - turn
+            # Ensure a minimum drive magnitude so it actually moves
+            def _ensure_min(v):
+                sign = 1.0 if v >= 0 else -1.0
+                return sign * max(abs(v), self.min_move_speed)
+            left = _ensure_min(left)
+            right = _ensure_min(right)
             
             # print(f"🔍 [CTRL] cx={obj_center_x:.1f}, err={error_x:.1f}, turn={turn:.1f}, L/R={left:.1f}/{right:.1f}")
-            duration = 0.35 if (abs(error_x) < 120 and obj_height < 500) else (0.25 if abs(error_x) < 120 else 0.12)
+            duration = 0.45 if (abs(error_x) < 120 and obj_height < 500) else (0.3 if abs(error_x) < 120 else 0.14)
             return [np.clip(left, -20, 20), np.clip(right, -20, 20)], duration # Longer step if centered
         
         return [0.0, 0.0], 0.0
@@ -645,6 +663,7 @@ class MainWindow(QMainWindow):
         self.last_map_check = 0.0
         self.map_interval = 8.0
         self.estimated_map = None
+        self.vision_miss_count = 0
         
         # Task Management
         self.history = []
@@ -761,7 +780,7 @@ class MainWindow(QMainWindow):
         self.timer.start(30)
 
     def _refresh_once(self):
-        img_robot, img_global = self.env.get_images()
+        img_robot, img_global = self.env.reset_view()
         self._update_image_label(self.label_global, img_global)
         self._update_image_label(self.label_robot, img_robot)
         self._update_info()
@@ -1069,8 +1088,24 @@ class MainWindow(QMainWindow):
                     self._log("[VISION] Dropped edge-hugging bbox as likely false positive.")
             else:
                 self.edge_bbox_count = 0
+            # On successful detection reset miss count
+            self.vision_miss_count = 0
         else:
             self.edge_bbox_count = 0
+            self.vision_miss_count += 1
+            if self.vision_miss_count >= VISION_MISS_MAX and not self.scanning:
+                self._log("[VISION] Lost target repeatedly -> scanning")
+                self.ctrl_left = 0.0
+                self.ctrl_right = 0.0
+                self.current_action = None
+                self.plan_queue = []
+                self.last_plan_info = None
+                self.scanning = True
+                self.scan_step = 0
+                self.surround_images = []
+                self.action_start_time = time.time()
+                self.action_duration = 0.0
+                return
         
         if self.current_action == "approach":
             # We are in the middle of an approach step

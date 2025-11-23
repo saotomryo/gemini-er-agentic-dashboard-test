@@ -57,6 +57,8 @@ stateDiagram-v2
 - `[PROMPT]/[RESPONSE]` : Vision/ER系のプロンプトと応答（未検出・失敗時を含む）。
 - `[MAP] updated ...` : マッパーによる推定ターゲット/マップ。
 - `[DBG] action=...` : 実行中のモーター指令とBBox。
+- `[TUNE][approach]` : BBox中心/高さ/誤差とモーター値（チューニング用）。
+- `[VISION] Found/Not found` : Vision検出結果（ファイルログにも記録）。
 
 ## 今後の観点（ER優先）
 - ERに連続フレーム・行動履歴を渡し、距離/方向推定やマップ更新をより積極的に行う。
